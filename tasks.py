@@ -214,6 +214,8 @@ def run_generate_job(payload: dict[str, Any]) -> dict[str, Any]:
         _job_set_meta(job, stage="uploading", progress=90, message="Uploading…")
 
         full_text = "\n\n".join(full_text_parts).strip() + "\n"
+        word_count = len([w for w in full_text.split() if w.strip()])
+        estimated_minutes = max(1, int(round(word_count / 180)))
 
         meta = {
             "job_id": job.id,
@@ -226,6 +228,8 @@ def run_generate_job(payload: dict[str, Any]) -> dict[str, Any]:
             "elapsed_seconds": int(time.time() - started),
             "brief_used": brief,
             "continuity_note": continuity_note,
+            "word_count": word_count,
+            "estimated_minutes": estimated_minutes,
         }
 
         save_script(
@@ -246,6 +250,8 @@ def run_generate_job(payload: dict[str, Any]) -> dict[str, Any]:
             "meta_url": f"/download-job/{job.id}.meta.json",
             "outline_url": f"/download-job/{job.id}.outline.json",
             "preview": full_text[:500] + ("..." if len(full_text) > 500 else ""),
+            "word_count": word_count,
+            "estimated_minutes": estimated_minutes,
         }
 
         _job_set_meta(job, status="finished", stage="done", progress=100, message="Done.", result=result)

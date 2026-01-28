@@ -237,8 +237,8 @@
             currentMetaUrl = data.meta_url || null;
             currentOutlineUrl = data.outline_url || null;
             document.getElementById('preview').textContent = data.preview;
-            document.getElementById('estimatedLength').textContent = '';
-            document.getElementById('wordCount').textContent = '';
+            document.getElementById('estimatedLength').textContent = data.estimated_minutes ? `Estimated length: ~${data.estimated_minutes} min` : '';
+            document.getElementById('wordCount').textContent = data.word_count ? `Words: ${data.word_count}` : '';
 
             const outlineBtn = document.getElementById('downloadOutlineBtn');
             if (outlineBtn) {
