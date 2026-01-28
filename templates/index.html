@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IIElevenLabs</title>
+    <title>Voiceover Script Generator</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -170,6 +170,9 @@
                 <button id="downloadMetaBtn" class="btn-secondary" style="width:100%;">
                     Download metadata (.json)
                 </button>
+                <button id="downloadOutlineBtn" class="btn-secondary" style="width:100%; display:none;">
+                    Download outline (.json)
+                </button>
                 <button id="newScriptBtn" class="btn-secondary">
                     New script
                 </button>
@@ -179,7 +182,16 @@
         <div id="loadingSection" class="loading-section" style="display: none;">
             <div class="spinner"></div>
             <p>Generating...</p>
-            <p class="loading-subtext">This can take a few seconds.</p>
+            <div class="progress-wrap" aria-label="Estimated progress">
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+                </div>
+                <div class="progress-meta">
+                    <span id="progressPct">0%</span>
+                    <span id="progressEta">Usually a few minutes.</span>
+                </div>
+            </div>
+            <p class="loading-subtext">Usually takes a few minutes. You can do something else — this page will reload when the script is ready.</p>
         </div>
 
         <div id="errorSection" class="error-section" style="display: none;">
@@ -196,8 +208,9 @@
     </footer>
 
     <script>
-        let currentFilename = null;
-        let currentMetaFilename = null;
+        let currentTxtUrl = null;
+        let currentMetaUrl = null;
+        let currentOutlineUrl = null;
 
         const form = document.getElementById('scriptForm');
         const resultSection = document.getElementById('resultSection');
@@ -205,6 +218,102 @@
         const errorSection = document.getElementById('errorSection');
         const targetMinutesInput = document.getElementById('target_minutes');
         const targetWordsHint = document.getElementById('targetWordsHint');
+        const progressFill = document.getElementById('progressFill');
+        const progressPct = document.getElementById('progressPct');
+        const progressEta = document.getElementById('progressEta');
+
+        const LAST_RESULT_KEY = 'sg_last_result_v1';
+        const CURRENT_JOB_KEY = 'sg_current_job_v1';
+
+        let pollTimer = null;
+
+        function stopPolling() {
+            if (pollTimer) clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+
+        function showResultFromData(data) {
+            currentTxtUrl = data.txt_url || null;
+            currentMetaUrl = data.meta_url || null;
+            currentOutlineUrl = data.outline_url || null;
+            document.getElementById('preview').textContent = data.preview;
+            document.getElementById('estimatedLength').textContent = '';
+            document.getElementById('wordCount').textContent = '';
+
+            const outlineBtn = document.getElementById('downloadOutlineBtn');
+            if (outlineBtn) {
+                outlineBtn.style.display = currentOutlineUrl ? 'block' : 'none';
+            }
+
+            form.parentElement.style.display = 'none';
+            loadingSection.style.display = 'none';
+            errorSection.style.display = 'none';
+            resultSection.style.display = 'block';
+        }
+
+        // If we reloaded after finishing, restore the last result.
+        const last = localStorage.getItem(LAST_RESULT_KEY);
+        if (last) {
+            try {
+                const data = JSON.parse(last);
+                localStorage.removeItem(LAST_RESULT_KEY);
+                if (data && data.success && data.txt_url) {
+                    showResultFromData(data);
+                }
+            } catch (e) {
+                localStorage.removeItem(LAST_RESULT_KEY);
+            }
+        }
+
+        async function pollJob(jobId, attempt = 0) {
+            stopPolling();
+            try {
+                const res = await fetch(`/jobs/${jobId}`);
+                const payload = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(payload.error || 'Job failed.');
+                }
+
+                const pct = Math.max(0, Math.min(100, parseInt(payload.progress || 0, 10)));
+                if (progressFill) progressFill.style.width = `${pct}%`;
+                if (progressPct) progressPct.textContent = `${pct}%`;
+                if (progressEta) progressEta.textContent = payload.message || payload.stage || 'Working…';
+
+                if ((payload.status === 'finished' || payload.stage === 'done') && payload.result && payload.result.success) {
+                    if (progressFill) progressFill.style.width = '100%';
+                    if (progressPct) progressPct.textContent = '100%';
+                    if (progressEta) progressEta.textContent = 'Done. Reloading...';
+                    localStorage.removeItem(CURRENT_JOB_KEY);
+                    localStorage.setItem(LAST_RESULT_KEY, JSON.stringify(payload.result));
+                    setTimeout(() => window.location.reload(), 600);
+                    return;
+                }
+
+                // continue polling with gentle backoff
+                const nextDelay = Math.min(4000, 800 + attempt * 120);
+                pollTimer = setTimeout(() => pollJob(jobId, attempt + 1), nextDelay);
+            } catch (err) {
+                stopPolling();
+                localStorage.removeItem(CURRENT_JOB_KEY);
+                document.getElementById('errorMessage').textContent = err && err.message ? err.message : 'Unknown error';
+                loadingSection.style.display = 'none';
+                errorSection.style.display = 'block';
+            }
+        }
+
+        // If a job is in progress and the user refreshed, resume polling.
+        const existingJob = localStorage.getItem(CURRENT_JOB_KEY);
+        if (existingJob && !last) {
+            form.parentElement.style.display = 'none';
+            resultSection.style.display = 'none';
+            errorSection.style.display = 'none';
+            loadingSection.style.display = 'block';
+            if (progressFill) progressFill.style.width = '0%';
+            if (progressPct) progressPct.textContent = '0%';
+            if (progressEta) progressEta.textContent = 'Resuming…';
+            pollJob(existingJob);
+        }
 
         function updateTargetWordsHint() {
             const minutes = parseInt(targetMinutesInput.value || '0', 10);
@@ -244,6 +353,9 @@
             resultSection.style.display = 'none';
             errorSection.style.display = 'none';
             loadingSection.style.display = 'block';
+            if (progressFill) progressFill.style.width = '0%';
+            if (progressPct) progressPct.textContent = '0%';
+            if (progressEta) progressEta.textContent = 'Queued…';
 
             try {
                 const response = await fetch('/generate', {
@@ -271,18 +383,15 @@
                 }
 
                 if (response.ok && data.success) {
-                    currentFilename = data.filename;
-                    currentMetaFilename = data.meta_filename;
-                    document.getElementById('preview').textContent = data.preview;
-                    document.getElementById('estimatedLength').textContent = data.estimated_minutes ? `Estimated length: ~${data.estimated_minutes} min` : '';
-                    document.getElementById('wordCount').textContent = data.word_count ? `Words: ${data.word_count}` : '';
-                    
-                    loadingSection.style.display = 'none';
-                    resultSection.style.display = 'block';
+                    const jobId = data.job_id;
+                    if (!jobId) throw new Error('Missing job_id from server.');
+                    localStorage.setItem(CURRENT_JOB_KEY, jobId);
+                    pollJob(jobId);
                 } else {
                     throw new Error(data.error || 'Unknown error');
                 }
             } catch (error) {
+                stopPolling();
                 console.error('Error:', error);
                 document.getElementById('errorMessage').textContent = error.message;
                 loadingSection.style.display = 'none';
@@ -292,15 +401,22 @@
 
         // Download button
         document.getElementById('downloadBtn').addEventListener('click', () => {
-            if (currentFilename) {
-                window.location.href = `/download/${currentFilename}`;
+            if (currentTxtUrl) {
+                window.location.href = currentTxtUrl;
             }
         });
 
         // Download meta button
         document.getElementById('downloadMetaBtn').addEventListener('click', () => {
-            if (currentMetaFilename) {
-                window.location.href = `/download-meta/${currentMetaFilename}`;
+            if (currentMetaUrl) {
+                window.location.href = currentMetaUrl;
+            }
+        });
+
+        // Download outline button
+        document.getElementById('downloadOutlineBtn').addEventListener('click', () => {
+            if (currentOutlineUrl) {
+                window.location.href = currentOutlineUrl;
             }
         });
 
@@ -310,12 +426,17 @@
             form.parentElement.style.display = 'block';
             form.reset();
             updateTargetWordsHint();
+            localStorage.removeItem(LAST_RESULT_KEY);
+            localStorage.removeItem(CURRENT_JOB_KEY);
+            stopPolling();
         });
 
         // Retry button
         document.getElementById('retryBtn').addEventListener('click', () => {
             errorSection.style.display = 'none';
             form.parentElement.style.display = 'block';
+            localStorage.removeItem(CURRENT_JOB_KEY);
+            stopPolling();
         });
     </script>
 </body>

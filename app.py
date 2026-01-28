@@ -2,12 +2,16 @@ import os
 import re
 import hmac
 import json
+import uuid
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, send_file, jsonify, redirect, url_for, make_response
 from openai import OpenAI
 import tempfile
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from rq.job import Job
+
+from jobs import get_queue, get_redis
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
@@ -28,7 +32,9 @@ def _get_openai_api_key() -> str:
 
 def _openai_client() -> OpenAI:
     # Create the client lazily so the app can boot even if key is missing.
-    return OpenAI(api_key=_get_openai_api_key(), timeout=60.0, max_retries=1)
+    timeout_s = float(os.environ.get("OPENAI_TIMEOUT_SECONDS", "240") or "240")
+    retries = int(os.environ.get("OPENAI_MAX_RETRIES", "2") or "2")
+    return OpenAI(api_key=_get_openai_api_key(), timeout=timeout_s, max_retries=retries)
 
 def _looks_like_openai_key(key: str) -> bool:
     """
@@ -585,20 +591,14 @@ def logout():
 @require_auth
 def generate():
     try:
+        # Async mode: enqueue a background job and return job_id quickly.
+        # We still validate env vars early so the user gets a fast, readable error.
         api_key = _get_openai_api_key()
         if not api_key:
             return jsonify({'error': 'Missing OPENAI_API_KEY in environment variables.'}), 500
         if not _looks_like_openai_key(api_key):
-            # Don't leak the full key; show only a safe prefix.
             safe_prefix = api_key[:8] + "..." if len(api_key) > 8 else api_key
-            return jsonify({
-                'error': (
-                    "OPENAI_API_KEY looks invalid. "
-                    "Make sure Render env var contains only the raw key (no 'Bearer ', no quotes, no newlines). "
-                    f"Key starts with: {safe_prefix!r}"
-                )
-            }), 500
-
+            return jsonify({'error': f"OPENAI_API_KEY looks invalid. Key starts with: {safe_prefix!r}"}), 500
         suspicious = _detect_suspicious_openai_env()
         if suspicious:
             return jsonify({'error': suspicious}), 500
@@ -618,56 +618,59 @@ def generate():
         if not script_type:
             return jsonify({'error': 'Please enter Script type.'}), 400
 
-        # Details and Brief are optional.
-        # If both are empty, seed a minimal "invent something" instruction consistent with language + type.
-        if not brief and not details:
-            details = (
-                "No user-provided details. Invent a simple, realistic scenario that fits the script type, "
-                "and choose a clear audience, tone, and a few key points that are easy to record."
-            )
+        job_id = uuid.uuid4().hex
+        payload = {
+            "script_type": script_type,
+            "language": language,
+            "accent": accent,
+            "brief": brief,
+            "details": details,
+            "target_minutes": target_minutes,
+            "model": model,
+        }
 
-        # Convert minutes -> words (server-side). Keep conservative bounds via generate_script.
-        target_words = int(target_minutes * 150)
+        q = get_queue()
+        job = q.enqueue("tasks.run_generate_job", payload, job_id=job_id)
+        job.meta.update({"status": "queued", "stage": "queued", "progress": 0, "message": "Queued…"})
+        job.save_meta()
 
-        script_text, meta = generate_script(
-            script_type=script_type,
-            language=language,
-            accent=accent,
-            brief=brief,
-            details=details,
-            model=model,
-            target_words=target_words,
-            target_minutes=target_minutes,
-        )
-        
-        # Save to temp file
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        safe_script_type = re.sub(r"[^a-zA-Z0-9_-]+", "_", script_type)[:40]
-        filename = f"script_{safe_script_type}_{timestamp}.txt"
-        meta_filename = f"script_{safe_script_type}_{timestamp}.meta.json"
-        
-        temp_dir = tempfile.gettempdir()
-        filepath = os.path.join(temp_dir, filename)
-        meta_path = os.path.join(temp_dir, meta_filename)
-        
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(script_text)
-        with open(meta_path, 'w', encoding='utf-8') as f:
-            json.dump(meta, f, ensure_ascii=False, indent=2)
-        
-        return jsonify({
-            'success': True,
-            'filename': filename,
-            'meta_filename': meta_filename,
-            'preview': script_text[:500] + '...' if len(script_text) > 500 else script_text,
-            'estimated_minutes': meta.get('estimated_minutes'),
-            'word_count': meta.get('word_count'),
-        })
+        return jsonify({"success": True, "job_id": job_id})
         
     except Exception as e:
         # Log full traceback in Render logs for debugging.
         app.logger.exception("Error in /generate")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/jobs/<job_id>', methods=['GET'])
+@require_auth
+def job_status(job_id: str):
+    try:
+        job = Job.fetch(job_id, connection=get_redis())
+    except Exception:
+        return jsonify({"error": "Job not found"}), 404
+
+    status = job.get_status()
+    meta = job.meta or {}
+
+    resp = {
+        "job_id": job_id,
+        "status": meta.get("status") or status,
+        "stage": meta.get("stage"),
+        "progress": meta.get("progress", 0),
+        "message": meta.get("message"),
+        "current_segment": meta.get("current_segment"),
+        "total_segments": meta.get("total_segments"),
+        "preview": meta.get("preview"),
+        "result": meta.get("result"),
+    }
+
+    if status == "failed":
+        # Do not return full traceback to the browser.
+        resp["error"] = meta.get("error") or "Job failed."
+        return jsonify(resp), 500
+
+    return jsonify(resp)
 
 @app.route('/download/<filename>')
 @require_auth
