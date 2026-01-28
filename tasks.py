@@ -6,7 +6,7 @@ from typing import Any
 
 from rq import get_current_job
 
-from storage_s3 import put_text, put_json, presign_get
+from storage_pg import save_script
 
 # Import generation helpers from the existing app module.
 # This avoids duplicating the OpenAI prompt logic.
@@ -114,7 +114,7 @@ def _update_continuity(*, language: str, last_segment_text: str, continuity: str
 
 def run_generate_job(payload: dict[str, Any]) -> dict[str, Any]:
     """
-    Background job: generates a long script in segments and uploads results to S3/R2.
+    Background job: generates a long script in segments and stores results in Postgres.
     Returns a result dict saved in job.meta['result'].
     """
     job = get_current_job()
@@ -214,11 +214,6 @@ def run_generate_job(payload: dict[str, Any]) -> dict[str, Any]:
         _job_set_meta(job, stage="uploading", progress=90, message="Uploading…")
 
         full_text = "\n\n".join(full_text_parts).strip() + "\n"
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
-        slug = _safe_slug(script_type)
-        txt_key = f"jobs/{job.id}/script_{slug}_{timestamp}.txt"
-        meta_key = f"jobs/{job.id}/script_{slug}_{timestamp}.meta.json"
-        outline_key = f"jobs/{job.id}/outline_{slug}_{timestamp}.json"
 
         meta = {
             "job_id": job.id,
@@ -233,16 +228,23 @@ def run_generate_job(payload: dict[str, Any]) -> dict[str, Any]:
             "continuity_note": continuity_note,
         }
 
-        put_text(key=txt_key, text=full_text)
-        put_json(key=meta_key, data=meta)
-        put_json(key=outline_key, data={"segments": outline})
+        save_script(
+            job_id=job.id,
+            script_type=script_type,
+            language=language,
+            accent=accent,
+            target_minutes=target_minutes,
+            script_txt=full_text,
+            meta=meta,
+            outline={"segments": outline},
+        )
 
         result = {
             "success": True,
             "job_id": job.id,
-            "txt_url": presign_get(key=txt_key),
-            "meta_url": presign_get(key=meta_key),
-            "outline_url": presign_get(key=outline_key),
+            "txt_url": f"/download-job/{job.id}.txt",
+            "meta_url": f"/download-job/{job.id}.meta.json",
+            "outline_url": f"/download-job/{job.id}.outline.json",
             "preview": full_text[:500] + ("..." if len(full_text) > 500 else ""),
         }
 

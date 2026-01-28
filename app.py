@@ -12,6 +12,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from rq.job import Job
 
 from jobs import get_queue, get_redis
+from storage_pg import fetch_blob
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
@@ -689,6 +690,49 @@ def download_meta(filename):
         return send_file(filepath, as_attachment=True, download_name=filename)
     except Exception as e:
         return jsonify({'error': str(e)}), 404
+
+
+@app.route('/download-job/<path:job_file>')
+@require_auth
+def download_job(job_file: str):
+    """
+    Download artifacts stored in Postgres by job id.
+    Supported:
+      /download-job/<job_id>.txt
+      /download-job/<job_id>.meta.json
+      /download-job/<job_id>.outline.json
+    """
+    try:
+        if job_file.endswith(".txt"):
+            job_id = job_file[:-4]
+            content, filename = fetch_blob(job_id, "txt")
+            resp = make_response(content)
+            resp.headers["Content-Type"] = "text/plain; charset=utf-8"
+            resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return resp
+
+        if job_file.endswith(".meta.json"):
+            job_id = job_file[: -len(".meta.json")]
+            content, filename = fetch_blob(job_id, "meta")
+            resp = make_response(content)
+            resp.headers["Content-Type"] = "application/json; charset=utf-8"
+            resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return resp
+
+        if job_file.endswith(".outline.json"):
+            job_id = job_file[: -len(".outline.json")]
+            content, filename = fetch_blob(job_id, "outline")
+            resp = make_response(content)
+            resp.headers["Content-Type"] = "application/json; charset=utf-8"
+            resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return resp
+
+        return jsonify({"error": "Unsupported file type"}), 400
+    except FileNotFoundError:
+        return jsonify({"error": "Job not found"}), 404
+    except Exception as e:
+        app.logger.exception("Error in /download-job")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
