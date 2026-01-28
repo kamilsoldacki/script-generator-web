@@ -283,7 +283,7 @@ def _generate_chat(messages, *, model: str, temperature: float, top_p: float, ma
     )
     return response.choices[0].message.content.strip()
 
-def _maybe_generate_auto_brief(*, language: str, accent: str, script_kind: str, details: str, model: str) -> str:
+def _maybe_generate_auto_brief(*, language: str, accent: str, script_type: str, details: str, model: str) -> str:
     sys = {
         "role": "system",
         "content": (
@@ -296,164 +296,48 @@ def _maybe_generate_auto_brief(*, language: str, accent: str, script_kind: str, 
         "content": (
             f"Language: {language}\n"
             f"Accent / dialect: {accent or 'not specified'}\n"
-            f"Script kind: {script_kind}\n"
+            f"Script type: {script_type}\n"
             f"User details:\n{details}\n\n"
             "Write one fresh brief (2–4 sentences) that is specific, recordable, and ready to feed into a script generator."
         )
     }
     return _generate_chat([sys, usr], model=model, temperature=0.7, top_p=0.95, max_tokens=220)
 
-def _build_messages(*, preset: str, language: str, accent: str, brief: str, details: str,
-                    scenes_count: int | None = None, min_turns: int | None = None, max_turns: int | None = None,
-                    dialect: str | None = None) -> list[dict]:
+def _build_messages(*, script_type: str, language: str, accent: str, brief: str, details: str) -> list[dict]:
     """
-    Presets:
-    - generic_agent_lines
-    - generic_monologue
-    - generic_dialogue_scenes
-    - volotea_vera_es (legacy)
+    Build a single-speaker (solo) voiceover script prompt.
     """
-    language = (language or "English (en)").strip()
+    language = (language or "English (en-US)").strip()
     accent = (accent or "").strip()
+    script_type = (script_type or "voiceover").strip()
     brief = (brief or "").strip()
     details = (details or "").strip()
 
-    if preset == "volotea_vera_es":
-        # Legacy Volotea/Vera preset (kept from original)
-        client_brief = brief or details
-        return [
-            {
-                "role": "system",
-                "content": (
-                    "Eres Vera, asistente virtual de Volotea. Atiendes soporte telefónico en directo. "
-                    "Hablas únicamente en español europeo con acento neutro de España. Usa 'usted' con respeto y cercanía. "
-                    "Tu estilo es sereno, preciso y bajo control (matiz de piloto de avión), cálido y tranquilizador, "
-                    "especialmente ante retrasos, cambios o incidencias. Conoces procesos y operación sin revelar detalles internos."
-                )
-            },
-            {
-                "role": "system",
-                "content": (
-                    "Reglas de salida: produce solo las intervenciones de la agente (tus palabras). "
-                    "No escribas líneas del cliente. Sin acotaciones, efectos, etiquetas, encabezados, listas, numeración ni markdown. "
-                    "Texto plano UTF-8. Cada intervención en su propia línea. No generes párrafos. "
-                    "Frases cortas. Una idea por frase. Máximo dos frases por intervención. "
-                    "Longitud objetivo por intervención: entre seis y dieciséis palabras. "
-                    "No uses raya larga (—) ni guiones como pausa; usa '.' o ':'. "
-                    "Paréntesis solo para incisos muy breves."
-                )
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"TAREA:\n"
-                    f"Usando este perfil de voz y contexto:\n{client_brief}\n\n"
-                    f"Genera un guion conversacional extenso en {language}, compuesto únicamente por líneas que diría la agente por teléfono.\n"
-                    "Solo texto plano; una línea = una intervención.\n"
-                    "Longitud objetivo: entre mil doscientas y dos mil palabras.\n"
-                )
-            }
-        ]
-
     base_system = (
         "You are a senior voiceover/copywriting scriptwriter.\n"
-        "Output rules (strict): plain UTF-8 text only; no Markdown; no headings unless explicitly requested; "
-        "no stage directions like [pause] or (laughs) unless requested.\n"
-        "Write in the requested language and keep the style natural for native speakers.\n"
+        "Output rules (strict): plain UTF-8 text only; no Markdown; no headings; "
+        "no labels like 'Speaker:'; no dialogue format; no stage directions like [pause] or (laughs).\n"
+        "Write a single-speaker script meant for one voice actor.\n"
+        "Use natural pacing and paragraph breaks.\n"
     )
 
-    if preset == "generic_agent_lines":
-        sys = {
-            "role": "system",
-            "content": base_system + (
-                "You are writing ONLY the AGENT's lines for call center / customer support training.\n"
-                "Formatting: each agent line as its own paragraph separated by a blank line.\n"
-                "Each line should start by briefly acknowledging what the customer likely said, then give a next step.\n"
-                "Vary length: mix short confirmations with longer helpful explanations.\n"
-            )
-        }
-        usr = {
-            "role": "user",
-            "content": (
-                f"LANGUAGE: {language}\n"
-                f"ACCENT / DIALECT: {accent or 'not specified'}\n"
-                "SCRIPT KIND: Call center agent-only lines\n\n"
-                f"BRIEF:\n{brief}\n\n"
-                f"DETAILS / REQUIREMENTS:\n{details}\n\n"
-                "Hard rules:\n"
-                "- Do NOT include the customer's lines.\n"
-                "- No lists or bullets.\n"
-                "- Avoid real personal data; if verification is needed, use safe placeholders (e.g., last four digits).\n"
-            )
-        }
-        return [sys, usr]
-
-    if preset == "generic_dialogue_scenes":
-        sc = scenes_count or 10
-        mi = min_turns or 6
-        ma = max_turns or 10
-        dialect_note = ""
-        if dialect == "najdi":
-            dialect_note = "Dialect: Najdi Arabic (Riyadh area). Avoid Hijazi vocabulary."
-        elif dialect == "hijazi":
-            dialect_note = "Dialect: Hijazi Arabic (Jeddah/Mecca area). Avoid Najdi vocabulary."
-
-        sys = {
-            "role": "system",
-            "content": base_system + (
-                "You write short, realistic dialogue scenes between a caller and an agent.\n"
-                "No extra commentary.\n"
-            )
-        }
-        usr = {
-            "role": "user",
-            "content": (
-                f"LANGUAGE: {language}\n"
-                f"ACCENT / DIALECT: {accent or 'not specified'}\n"
-                f"{dialect_note}\n"
-                "SCRIPT KIND: Dialogue scenes (caller + agent)\n\n"
-                f"BRIEF:\n{brief}\n\n"
-                f"DETAILS / REQUIREMENTS:\n{details}\n\n"
-                "Format (strict):\n"
-                f"- Produce exactly {sc} scenes.\n"
-                "- Each scene starts with a header line:\n"
-                "### Scene {number} — {domain} — {intent1}/{intent2}\n"
-                "- Then only dialogue lines:\n"
-                "Caller: ...\n"
-                "Agent: ...\n"
-                f"- Turns per scene: between {mi} and {ma} turns (each turn = Caller line + Agent line).\n"
-                "- Plain text only.\n"
-            )
-        }
-        return [sys, usr]
-
-    # generic_monologue (default)
-    sys = {
-        "role": "system",
-        "content": base_system + (
-            "You write a one-speaker monologue meant for a voice actor.\n"
-            "No dialogue labels. No scene directions.\n"
-            "Use natural pacing and paragraph breaks.\n"
-        )
-    }
+    sys = {"role": "system", "content": base_system}
     usr = {
         "role": "user",
         "content": (
             f"LANGUAGE: {language}\n"
             f"ACCENT / DIALECT: {accent or 'not specified'}\n"
-            "SCRIPT KIND: One-speaker monologue\n\n"
+            f"SCRIPT TYPE: {script_type}\n\n"
             f"BRIEF:\n{brief}\n\n"
             f"DETAILS / REQUIREMENTS:\n{details}\n\n"
-            "Output: continuous text with paragraph breaks; ready to record.\n"
+            "Write a script that is ready to record.\n"
             "No lists or bullets.\n"
-        )
+        ),
     }
     return [sys, usr]
 
-def generate_script(*, preset: str, language: str, accent: str, brief: str, details: str,
-                    model: str, target_words: int, auto_brief: bool,
-                    scenes_count: int | None = None, min_turns: int | None = None, max_turns: int | None = None,
-                    dialect: str | None = None) -> tuple[str, dict]:
+def generate_script(*, script_type: str, language: str, accent: str, brief: str, details: str,
+                    model: str, target_words: int, target_minutes: int | None = None) -> tuple[str, dict]:
     """
     Returns (script_text, meta_dict).
     """
@@ -465,23 +349,19 @@ def generate_script(*, preset: str, language: str, accent: str, brief: str, deta
     temperature = 0.8
     top_p = 0.95
 
-    # Auto-brief if requested (or if brief empty and auto enabled)
+    # Auto-brief if Brief is empty
     used_brief = (brief or "").strip()
-    if auto_brief and not used_brief:
+    if not used_brief:
         used_brief = _maybe_generate_auto_brief(
-            language=language, accent=accent, script_kind=preset, details=details, model=model
+            language=language, accent=accent, script_type=script_type, details=details, model=model
         )
 
     messages = _build_messages(
-        preset=preset,
+        script_type=script_type,
         language=language,
         accent=accent,
         brief=used_brief,
         details=details,
-        scenes_count=scenes_count,
-        min_turns=min_turns,
-        max_turns=max_turns,
-        dialect=dialect,
     )
 
     # First pass
@@ -497,10 +377,6 @@ def generate_script(*, preset: str, language: str, accent: str, brief: str, deta
     )
 
     script_text = raw
-
-    # Optional postprocess for legacy Volotea preset
-    if preset == "volotea_vera_es":
-        script_text = postprocess(script_text)
 
     # Light continuation loop to reach approximate target words (kept conservative)
     loops = 0
@@ -525,45 +401,22 @@ def generate_script(*, preset: str, language: str, accent: str, brief: str, deta
         script_text += "\n" + part
         loops += 1
 
-    # Final polish for Volotea preset: second pass QC (kept from original idea, but shorter)
-    if preset == "volotea_vera_es":
-        review_messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Eres un revisor de calidad para un guion VO/TTS en español de España. "
-                    "Devuelve únicamente líneas válidas de la agente; texto plano; una línea = una oración. "
-                    "Elimina líneas fuera de dominio o demasiado largas."
-                ),
-            },
-            {
-                "role": "user",
-                "content": "Limpia este guion manteniendo el sentido y el orden:\n\n" + script_text,
-            },
-        ]
-        reviewed = _generate_chat(
-            review_messages,
-            model=model,
-            temperature=0.1,
-            top_p=0.8,
-            max_tokens=3000,
-            presence_penalty=0.0,
-            frequency_penalty=0.2,
-        )
-        script_text = postprocess(reviewed)
+    # Understated estimated minutes (intentionally optimistic)
+    # Example: 180 wpm makes the estimate lower than typical VO pacing.
+    estimated_minutes = max(1, int(round(_word_count(script_text) / 180)))
 
     meta = {
-        "preset": preset,
+        "script_type": script_type,
         "language": language,
         "accent": accent,
-        "model": model,
         "temperature": temperature,
         "top_p": top_p,
+        "target_minutes": int(target_minutes) if target_minutes is not None else None,
         "target_words": target_words,
         "word_count": _word_count(script_text),
         "line_count": _line_count(script_text),
-        "auto_brief": bool(auto_brief),
         "brief_used": used_brief,
+        "estimated_minutes": estimated_minutes,
         "generated_at": datetime.utcnow().isoformat() + "Z",
     }
     return script_text, meta
@@ -584,7 +437,7 @@ def login():
 
     password = (request.form.get("password") or "").strip()
     if not hmac.compare_digest(password, APP_PASSWORD):
-        return render_template('login.html', error="Nieprawidłowe hasło.")
+        return render_template('login.html', error="Invalid password.")
 
     nxt = request.args.get("next") or url_for("index")
     resp = make_response(redirect(nxt))
@@ -600,47 +453,44 @@ def logout():
 def generate():
     try:
         if not os.environ.get("OPENAI_API_KEY"):
-            return jsonify({'error': 'Brak OPENAI_API_KEY w zmiennych środowiskowych'}), 500
+            return jsonify({'error': 'Missing OPENAI_API_KEY in environment variables.'}), 500
 
         data = request.json or {}
-        preset = (data.get("preset") or "generic_agent_lines").strip()
-        language = (data.get('language') or 'Polish (pl-PL)').strip()
+        script_type = (data.get("script_type") or "").strip()
+        language = (data.get('language') or 'English (en-US)').strip()
         accent = (data.get('accent') or '').strip()
         brief = (data.get('brief') or '').strip()
         details = (data.get('details') or '').strip()
-        target_words = int(data.get("target_words") or 1200)
-        auto_brief = bool(data.get("auto_brief") or False)
+        target_minutes = int(data.get("target_minutes") or 5)
 
-        scenes_count = data.get("scenes_count")
-        min_turns = data.get("min_turns")
-        max_turns = data.get("max_turns")
-        dialect = data.get("dialect")
+        model = (os.environ.get("OPENAI_MODEL") or "gpt-4.1").strip()
 
-        model = (data.get("model") or os.environ.get("OPENAI_MODEL") or "gpt-4.1").strip()
+        if not script_type:
+            return jsonify({'error': 'Please enter Script type.'}), 400
 
-        if not (brief or details):
-            return jsonify({'error': 'Wpisz przynajmniej "Szczegóły" albo "Brief".'}), 400
+        # Require details; Brief is optional (and will be auto-generated if empty)
+        if not details.strip():
+            return jsonify({'error': 'Please fill in Details.'}), 400
+
+        # Convert minutes -> words (server-side). Keep conservative bounds via generate_script.
+        target_words = int(target_minutes * 150)
 
         script_text, meta = generate_script(
-            preset=preset,
+            script_type=script_type,
             language=language,
             accent=accent,
             brief=brief,
             details=details,
             model=model,
             target_words=target_words,
-            auto_brief=auto_brief,
-            scenes_count=int(scenes_count) if scenes_count else None,
-            min_turns=int(min_turns) if min_turns else None,
-            max_turns=int(max_turns) if max_turns else None,
-            dialect=str(dialect).strip() if dialect else None,
+            target_minutes=target_minutes,
         )
         
         # Save to temp file
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        safe_preset = re.sub(r"[^a-zA-Z0-9_-]+", "_", preset)[:40]
-        filename = f"script_{safe_preset}_{timestamp}.txt"
-        meta_filename = f"script_{safe_preset}_{timestamp}.meta.json"
+        safe_script_type = re.sub(r"[^a-zA-Z0-9_-]+", "_", script_type)[:40]
+        filename = f"script_{safe_script_type}_{timestamp}.txt"
+        meta_filename = f"script_{safe_script_type}_{timestamp}.meta.json"
         
         temp_dir = tempfile.gettempdir()
         filepath = os.path.join(temp_dir, filename)
@@ -655,7 +505,9 @@ def generate():
             'success': True,
             'filename': filename,
             'meta_filename': meta_filename,
-            'preview': script_text[:500] + '...' if len(script_text) > 500 else script_text
+            'preview': script_text[:500] + '...' if len(script_text) > 500 else script_text,
+            'estimated_minutes': meta.get('estimated_minutes'),
+            'word_count': meta.get('word_count'),
         })
         
     except Exception as e:
