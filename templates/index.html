@@ -222,12 +222,22 @@
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            const script_type = document.getElementById('script_type').value;
+            const scriptTypeEl = document.getElementById('script_type');
+            const script_type = scriptTypeEl.value;
             const language = document.getElementById('language').value;
             const accent = document.getElementById('accent').value;
             const details = document.getElementById('details').value;
             const brief = document.getElementById('brief').value;
             const target_minutes = parseInt(document.getElementById('target_minutes').value, 10);
+
+            if (!script_type || !script_type.trim()) {
+                document.getElementById('errorMessage').textContent = 'Please enter Script type.';
+                loadingSection.style.display = 'none';
+                resultSection.style.display = 'none';
+                errorSection.style.display = 'block';
+                scriptTypeEl.focus();
+                return;
+            }
 
             // Show loading
             form.parentElement.style.display = 'none';
@@ -251,7 +261,14 @@
                     })
                 });
 
-                const data = await response.json();
+                const rawText = await response.text();
+                let data = null;
+                try {
+                    data = rawText ? JSON.parse(rawText) : {};
+                } catch (e) {
+                    const snippet = rawText ? rawText.slice(0, 240) : '';
+                    throw new Error(`Non-JSON response (${response.status}). ${snippet}`);
+                }
 
                 if (response.ok && data.success) {
                     currentFilename = data.filename;

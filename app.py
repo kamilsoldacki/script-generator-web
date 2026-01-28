@@ -22,11 +22,45 @@ def _get_openai_api_key() -> str:
         key = key[7:].strip()
     if (len(key) >= 2) and ((key[0] == key[-1] == '"') or (key[0] == key[-1] == "'")):
         key = key[1:-1].strip()
+    # Remove any stray whitespace/newlines inside the key.
+    key = re.sub(r"\s+", "", key)
     return key
 
 def _openai_client() -> OpenAI:
     # Create the client lazily so the app can boot even if key is missing.
-    return OpenAI(api_key=_get_openai_api_key())
+    return OpenAI(api_key=_get_openai_api_key(), timeout=60.0, max_retries=1)
+
+def _looks_like_openai_key(key: str) -> bool:
+    """
+    Best-effort validation to replace the opaque:
+    'The string did not match the expected pattern.'
+    """
+    if not key:
+        return False
+    # Common OpenAI key prefixes:
+    # - sk-...
+    # - sk-proj-...
+    # (Keep permissive; just prevent obvious misconfigurations like 'Bearer ...' or JSON blobs.)
+    return bool(re.match(r"^sk-(proj-)?[A-Za-z0-9_\-]{10,}$", key))
+
+def _looks_like_model_name(model: str) -> bool:
+    # Model IDs are typically lowercase with digits, dots and hyphens (be permissive).
+    if not model:
+        return False
+    if len(model) > 120:
+        return False
+    return bool(re.match(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$", model))
+
+def _detect_suspicious_openai_env() -> str | None:
+    """
+    The OpenAI SDK may read env vars like OPENAI_BASE_URL/OPENAI_API_BASE.
+    If these are set to a non-URL value, it can trigger regex/pattern validation errors.
+    """
+    for k in ("OPENAI_BASE_URL", "OPENAI_API_BASE"):
+        v = (os.environ.get(k) or "").strip()
+        if v and not re.match(r"^https?://", v, flags=re.IGNORECASE):
+            return f"{k} is set but does not look like a URL. Value starts with: {v[:24]!r}"
+    return None
 
 # === Auth (team-only) ===
 
@@ -463,8 +497,8 @@ def generate_script(*, script_type: str, language: str, accent: str, brief: str,
         details=details,
     )
 
-    # First pass
-    max_tokens = 4500 if target_words <= 2000 else 9000
+    # First pass (keep outputs bounded; avoids slow/OOM on small instances)
+    max_tokens = min(3500, max(800, int(target_words * 1.7)))
     raw = _generate_chat(
         messages,
         model=model,
@@ -479,7 +513,7 @@ def generate_script(*, script_type: str, language: str, accent: str, brief: str,
 
     # Light continuation loop to reach approximate target words (kept conservative)
     loops = 0
-    max_loops = 3
+    max_loops = 1
     while _word_count(script_text) < target_words and loops < max_loops:
         tail = script_text[-1200:]
         cont_user = (
@@ -551,8 +585,23 @@ def logout():
 @require_auth
 def generate():
     try:
-        if not _get_openai_api_key():
+        api_key = _get_openai_api_key()
+        if not api_key:
             return jsonify({'error': 'Missing OPENAI_API_KEY in environment variables.'}), 500
+        if not _looks_like_openai_key(api_key):
+            # Don't leak the full key; show only a safe prefix.
+            safe_prefix = api_key[:8] + "..." if len(api_key) > 8 else api_key
+            return jsonify({
+                'error': (
+                    "OPENAI_API_KEY looks invalid. "
+                    "Make sure Render env var contains only the raw key (no 'Bearer ', no quotes, no newlines). "
+                    f"Key starts with: {safe_prefix!r}"
+                )
+            }), 500
+
+        suspicious = _detect_suspicious_openai_env()
+        if suspicious:
+            return jsonify({'error': suspicious}), 500
 
         data = request.json or {}
         script_type = (data.get("script_type") or "").strip()
@@ -563,6 +612,8 @@ def generate():
         target_minutes = int(data.get("target_minutes") or 5)
 
         model = (os.environ.get("OPENAI_MODEL") or "gpt-4.1").strip()
+        if not _looks_like_model_name(model):
+            return jsonify({'error': f"OPENAI_MODEL looks invalid: {model!r}"}), 500
 
         if not script_type:
             return jsonify({'error': 'Please enter Script type.'}), 400
@@ -614,6 +665,8 @@ def generate():
         })
         
     except Exception as e:
+        # Log full traceback in Render logs for debugging.
+        app.logger.exception("Error in /generate")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/download/<filename>')
