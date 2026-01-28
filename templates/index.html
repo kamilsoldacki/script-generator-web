@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Script Generator</title>
+    <title>IIElevenLabs</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -11,8 +11,7 @@
         <header>
             <div class="header-row">
                 <div class="header-left">
-                    <div class="header-title">Script Generator</div>
-                    <div class="header-subtitle">Generate a voiceover script and download it as a .txt file.</div>
+                    <div class="header-title">IIElevenLabs</div>
                 </div>
                 {% if auth_enabled %}
                     <a class="header-link" href="/logout">Log out</a>
@@ -22,7 +21,7 @@
 
         <div class="card">
             <h1>Generate a script</h1>
-            <p class="card-subtitle">Keep it simple. One voice only.</p>
+            <p class="card-subtitle">Keep it simple. One voice only. Generate a voiceover script and download it as a .txt.</p>
             <form id="scriptForm">
                 <div class="form-group">
                     <label for="script_type">Script type</label>
@@ -38,13 +37,80 @@
                 <div class="form-group">
                     <label for="language">Language</label>
                     <select id="language" name="language" required>
-                        <option value="English (en-US)" selected>English (en-US)</option>
-                        <option value="English (en-GB)">English (en-GB)</option>
-                        <option value="Polish (pl-PL)">Polish (pl-PL)</option>
-                        <option value="Español (es-ES)">Spanish (es-ES)</option>
-                        <option value="Français (fr-FR)">French (fr-FR)</option>
-                        <option value="Deutsch (de-DE)">German (de-DE)</option>
-                        <option value="Italiano (it-IT)">Italian (it-IT)</option>
+                        <option value="AFR">AFR — Afrikaans</option>
+                        <option value="ARA">ARA — Arabic</option>
+                        <option value="HYE">HYE — Armenian</option>
+                        <option value="ASM">ASM — Assamese</option>
+                        <option value="AZE">AZE — Azerbaijani</option>
+                        <option value="BEL">BEL — Belarusian</option>
+                        <option value="BEN">BEN — Bengali</option>
+                        <option value="BOS">BOS — Bosnian</option>
+                        <option value="BUL">BUL — Bulgarian</option>
+                        <option value="CAT">CAT — Catalan</option>
+                        <option value="CEB">CEB — Cebuano</option>
+                        <option value="NYA">NYA — Chichewa</option>
+                        <option value="HRV">HRV — Croatian</option>
+                        <option value="CES">CES — Czech</option>
+                        <option value="DAN">DAN — Danish</option>
+                        <option value="NLD">NLD — Dutch</option>
+                        <option value="ENG" selected>ENG — English</option>
+                        <option value="EST">EST — Estonian</option>
+                        <option value="FIL">FIL — Filipino</option>
+                        <option value="FIN">FIN — Finnish</option>
+                        <option value="FRA">FRA — French</option>
+                        <option value="GLG">GLG — Galician</option>
+                        <option value="KAT">KAT — Georgian</option>
+                        <option value="DEU">DEU — German</option>
+                        <option value="ELL">ELL — Greek</option>
+                        <option value="GUJ">GUJ — Gujarati</option>
+                        <option value="HAU">HAU — Hausa</option>
+                        <option value="HEB">HEB — Hebrew</option>
+                        <option value="HIN">HIN — Hindi</option>
+                        <option value="HUN">HUN — Hungarian</option>
+                        <option value="ISL">ISL — Icelandic</option>
+                        <option value="IND">IND — Indonesian</option>
+                        <option value="GLE">GLE — Irish</option>
+                        <option value="ITA">ITA — Italian</option>
+                        <option value="JPN">JPN — Japanese</option>
+                        <option value="JAV">JAV — Javanese</option>
+                        <option value="KAN">KAN — Kannada</option>
+                        <option value="KAZ">KAZ — Kazakh</option>
+                        <option value="KIR">KIR — Kirghiz</option>
+                        <option value="KOR">KOR — Korean</option>
+                        <option value="LAV">LAV — Latvian</option>
+                        <option value="LIN">LIN — Lingala</option>
+                        <option value="LIT">LIT — Lithuanian</option>
+                        <option value="LTZ">LTZ — Luxembourgish</option>
+                        <option value="MKD">MKD — Macedonian</option>
+                        <option value="MSA">MSA — Malay</option>
+                        <option value="MAL">MAL — Malayalam</option>
+                        <option value="CMN">CMN — Mandarin Chinese</option>
+                        <option value="MAR">MAR — Marathi</option>
+                        <option value="NEP">NEP — Nepali</option>
+                        <option value="NOR">NOR — Norwegian</option>
+                        <option value="PUS">PUS — Pashto</option>
+                        <option value="FAS">FAS — Persian</option>
+                        <option value="POL">POL — Polish</option>
+                        <option value="POR">POR — Portuguese</option>
+                        <option value="PAN">PAN — Punjabi</option>
+                        <option value="RON">RON — Romanian</option>
+                        <option value="RUS">RUS — Russian</option>
+                        <option value="SRP">SRP — Serbian</option>
+                        <option value="SND">SND — Sindhi</option>
+                        <option value="SLK">SLK — Slovak</option>
+                        <option value="SLV">SLV — Slovenian</option>
+                        <option value="SOM">SOM — Somali</option>
+                        <option value="SPA">SPA — Spanish</option>
+                        <option value="SWA">SWA — Swahili</option>
+                        <option value="SWE">SWE — Swedish</option>
+                        <option value="TAM">TAM — Tamil</option>
+                        <option value="TEL">TEL — Telugu</option>
+                        <option value="THA">THA — Thai</option>
+                        <option value="TUR">TUR — Turkish</option>
+                        <option value="UKR">UKR — Ukrainian</option>
+                        <option value="URD">URD — Urdu</option>
+                        <option value="VIE">VIE — Vietnamese</option>
+                        <option value="CYM">CYM — Welsh</option>
                     </select>
                 </div>
 
@@ -54,7 +120,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="details">Details</label>
+                    <label for="details">Details (optional)</label>
                     <textarea
                         id="details"
                         name="details"
@@ -71,9 +137,6 @@
                         rows="6"
                         placeholder="Optional: voice/persona, brand, reading rules for numbers, pacing, style constraints..."
                     ></textarea>
-                    <div class="char-counter">
-                        <span id="charCount">0</span> characters
-                    </div>
                 </div>
 
                 <div class="form-group">
@@ -129,7 +192,7 @@
     </div>
 
     <footer>
-        <p>Built by Kamil · Hosted on Render</p>
+        <p>Built with ❤️ for the ElevenLabs team · Kamil Soldacki</p>
     </footer>
 
     <script>
@@ -140,8 +203,6 @@
         const resultSection = document.getElementById('resultSection');
         const loadingSection = document.getElementById('loadingSection');
         const errorSection = document.getElementById('errorSection');
-        const briefTextarea = document.getElementById('brief');
-        const charCount = document.getElementById('charCount');
         const targetMinutesInput = document.getElementById('target_minutes');
         const targetWordsHint = document.getElementById('targetWordsHint');
 
@@ -156,11 +217,6 @@
         }
         targetMinutesInput.addEventListener('input', updateTargetWordsHint);
         updateTargetWordsHint();
-
-        // Character counter
-        briefTextarea.addEventListener('input', () => {
-            charCount.textContent = briefTextarea.value.length;
-        });
 
         // Form submission
         form.addEventListener('submit', async (e) => {
@@ -236,7 +292,6 @@
             resultSection.style.display = 'none';
             form.parentElement.style.display = 'block';
             form.reset();
-            charCount.textContent = '0';
             updateTargetWordsHint();
         });
 

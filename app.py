@@ -12,8 +12,21 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+def _get_openai_api_key() -> str:
+    """
+    Render/hosting env vars sometimes include quotes or a 'Bearer ' prefix.
+    The OpenAI SDK may validate the key format, so we normalize it here.
+    """
+    key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    if key.lower().startswith("bearer "):
+        key = key[7:].strip()
+    if (len(key) >= 2) and ((key[0] == key[-1] == '"') or (key[0] == key[-1] == "'")):
+        key = key[1:-1].strip()
+    return key
+
+def _openai_client() -> OpenAI:
+    # Create the client lazily so the app can boot even if key is missing.
+    return OpenAI(api_key=_get_openai_api_key())
 
 # === Auth (team-only) ===
 
@@ -272,7 +285,7 @@ def _line_count(t: str) -> int:
 
 def _generate_chat(messages, *, model: str, temperature: float, top_p: float, max_tokens: int,
                    presence_penalty: float = 0.0, frequency_penalty: float = 0.0) -> str:
-    response = client.chat.completions.create(
+    response = _openai_client().chat.completions.create(
         model=model,
         messages=messages,
         temperature=temperature,
@@ -282,6 +295,92 @@ def _generate_chat(messages, *, model: str, temperature: float, top_p: float, ma
         max_tokens=max_tokens,
     )
     return response.choices[0].message.content.strip()
+
+_LANG_CODE_TO_NAME: dict[str, str] = {
+    "AFR": "Afrikaans",
+    "ARA": "Arabic",
+    "HYE": "Armenian",
+    "ASM": "Assamese",
+    "AZE": "Azerbaijani",
+    "BEL": "Belarusian",
+    "BEN": "Bengali",
+    "BOS": "Bosnian",
+    "BUL": "Bulgarian",
+    "CAT": "Catalan",
+    "CEB": "Cebuano",
+    "NYA": "Chichewa",
+    "HRV": "Croatian",
+    "CES": "Czech",
+    "DAN": "Danish",
+    "NLD": "Dutch",
+    "ENG": "English",
+    "EST": "Estonian",
+    "FIL": "Filipino",
+    "FIN": "Finnish",
+    "FRA": "French",
+    "GLG": "Galician",
+    "KAT": "Georgian",
+    "DEU": "German",
+    "ELL": "Greek",
+    "GUJ": "Gujarati",
+    "HAU": "Hausa",
+    "HEB": "Hebrew",
+    "HIN": "Hindi",
+    "HUN": "Hungarian",
+    "ISL": "Icelandic",
+    "IND": "Indonesian",
+    "GLE": "Irish",
+    "ITA": "Italian",
+    "JPN": "Japanese",
+    "JAV": "Javanese",
+    "KAN": "Kannada",
+    "KAZ": "Kazakh",
+    "KIR": "Kirghiz",
+    "KOR": "Korean",
+    "LAV": "Latvian",
+    "LIN": "Lingala",
+    "LIT": "Lithuanian",
+    "LTZ": "Luxembourgish",
+    "MKD": "Macedonian",
+    "MSA": "Malay",
+    "MAL": "Malayalam",
+    "CMN": "Mandarin Chinese",
+    "MAR": "Marathi",
+    "NEP": "Nepali",
+    "NOR": "Norwegian",
+    "PUS": "Pashto",
+    "FAS": "Persian",
+    "POL": "Polish",
+    "POR": "Portuguese",
+    "PAN": "Punjabi",
+    "RON": "Romanian",
+    "RUS": "Russian",
+    "SRP": "Serbian",
+    "SND": "Sindhi",
+    "SLK": "Slovak",
+    "SLV": "Slovenian",
+    "SOM": "Somali",
+    "SPA": "Spanish",
+    "SWA": "Swahili",
+    "SWE": "Swedish",
+    "TAM": "Tamil",
+    "TEL": "Telugu",
+    "THA": "Thai",
+    "TUR": "Turkish",
+    "UKR": "Ukrainian",
+    "URD": "Urdu",
+    "VIE": "Vietnamese",
+    "CYM": "Welsh",
+}
+
+def _normalize_language(lang: str) -> str:
+    lang = (lang or "").strip()
+    if not lang:
+        return "English"
+    # If frontend sends a code like "ENG", convert to a friendly name.
+    if len(lang) == 3 and lang.isalpha():
+        return _LANG_CODE_TO_NAME.get(lang.upper(), lang.upper())
+    return lang
 
 def _maybe_generate_auto_brief(*, language: str, accent: str, script_type: str, details: str, model: str) -> str:
     sys = {
@@ -452,12 +551,12 @@ def logout():
 @require_auth
 def generate():
     try:
-        if not os.environ.get("OPENAI_API_KEY"):
+        if not _get_openai_api_key():
             return jsonify({'error': 'Missing OPENAI_API_KEY in environment variables.'}), 500
 
         data = request.json or {}
         script_type = (data.get("script_type") or "").strip()
-        language = (data.get('language') or 'English (en-US)').strip()
+        language = _normalize_language(data.get('language') or 'English')
         accent = (data.get('accent') or '').strip()
         brief = (data.get('brief') or '').strip()
         details = (data.get('details') or '').strip()
@@ -468,9 +567,13 @@ def generate():
         if not script_type:
             return jsonify({'error': 'Please enter Script type.'}), 400
 
-        # Require details; Brief is optional (and will be auto-generated if empty)
-        if not details.strip():
-            return jsonify({'error': 'Please fill in Details.'}), 400
+        # Details and Brief are optional.
+        # If both are empty, seed a minimal "invent something" instruction consistent with language + type.
+        if not brief and not details:
+            details = (
+                "No user-provided details. Invent a simple, realistic scenario that fits the script type, "
+                "and choose a clear audience, tone, and a few key points that are easy to record."
+            )
 
         # Convert minutes -> words (server-side). Keep conservative bounds via generate_script.
         target_words = int(target_minutes * 150)
