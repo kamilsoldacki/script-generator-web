@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generator Skryptów VO/TTS</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div>
+                    <h1>🎙️ Generator Skryptów dla Lektorów</h1>
+                    <p class="subtitle">Wygeneruj skrypt VO/TTS jako plik .txt</p>
+                </div>
+                {% if auth_enabled %}
+                    <div>
+                        <a href="/logout" style="color:white;text-decoration:underline;font-weight:600;">Wyloguj</a>
+                    </div>
+                {% endif %}
+            </div>
+        </header>
+
+        <div class="card">
+            <form id="scriptForm">
+                <div class="form-group">
+                    <label for="preset">
+                        <span class="label-icon">⚙️</span>
+                        Typ skryptu (preset)
+                    </label>
+                    <select id="preset" name="preset" required>
+                        <option value="generic_agent_lines" selected>Call center — tylko linie agenta</option>
+                        <option value="generic_monologue">Monolog — jeden narrator</option>
+                        <option value="generic_dialogue_scenes">Dialogi — sceny (Caller + Agent)</option>
+                        <option value="volotea_vera_es">Volotea (Vera, es-ES) — legacy</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="language">
+                        <span class="label-icon">🌍</span>
+                        Język docelowy
+                    </label>
+                    <select id="language" name="language" required>
+                        <option value="Polish (pl-PL)" selected>Polski (pl-PL)</option>
+                        <option value="Español europeo (es-ES)">Hiszpański europejski (es-ES)</option>
+                        <option value="English (en-US)">Angielski amerykański (en-US)</option>
+                        <option value="English (en-GB)">Angielski brytyjski (en-GB)</option>
+                        <option value="Français (fr-FR)">Francuski (fr-FR)</option>
+                        <option value="Deutsch (de-DE)">Niemiecki (de-DE)</option>
+                        <option value="Italiano (it-IT)">Włoski (it-IT)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="accent">
+                        <span class="label-icon">🗣️</span>
+                        Akcent / dialekt (opcjonalnie)
+                    </label>
+                    <input
+                        id="accent"
+                        name="accent"
+                        type="text"
+                        placeholder="np. en-GB, neutral, Najdi Arabic (Riyadh), Hijazi (Jeddah), South African English..."
+                        style="width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:8px;font-size:1em;"
+                    />
+                </div>
+
+                <div class="form-group">
+                    <label for="details">
+                        <span class="label-icon">🧩</span>
+                        Szczegóły (co ma być w skrypcie)
+                    </label>
+                    <textarea
+                        id="details"
+                        name="details"
+                        rows="8"
+                        placeholder="Opisz: kontekst/produkt, ton, personę, odbiorcę, strukturę, zakazy/dozwolone, przykładowe sytuacje, wymagania pod nagranie..."
+                    ></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="brief">
+                        <span class="label-icon">📝</span>
+                        Brief (opcjonalnie, np. profil głosu / persona)
+                    </label>
+                    <textarea 
+                        id="brief" 
+                        name="brief" 
+                        rows="6"
+                        placeholder="Opcjonalnie: profil głosu (wiek/płeć), marka, zasady czytania liczb, tempo, format odpowiedzi..."
+                    ></textarea>
+                    <div class="char-counter">
+                        <span id="charCount">0</span> znaków (brief)
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="target_words">
+                        <span class="label-icon">📏</span>
+                        Docelowa długość (w słowach)
+                    </label>
+                    <select id="target_words" name="target_words" required>
+                        <option value="600">Krótki (ok. 600 słów)</option>
+                        <option value="1200" selected>Średni (ok. 1200 słów)</option>
+                        <option value="2000">Długi (ok. 2000 słów)</option>
+                        <option value="4000">Bardzo długi (ok. 4000 słów)</option>
+                        <option value="8000">Ekstra długi (ok. 8000 słów)</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="scenesOptions" style="display:none;">
+                    <label>
+                        <span class="label-icon">🎬</span>
+                        Opcje scen (dla „Dialogi — sceny”)
+                    </label>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div>
+                            <label for="scenes_count" style="font-weight:600;margin-bottom:6px;">Liczba scen</label>
+                            <input id="scenes_count" type="number" min="1" max="40" value="10" style="width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:8px;font-size:1em;">
+                        </div>
+                        <div>
+                            <label for="dialect" style="font-weight:600;margin-bottom:6px;">Dialekt (opcjonalnie)</label>
+                            <select id="dialect" style="width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:8px;font-size:1em;">
+                                <option value="" selected>—</option>
+                                <option value="najdi">Najdi (Riyadh)</option>
+                                <option value="hijazi">Hijazi (Jeddah/Mecca)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="min_turns" style="font-weight:600;margin-bottom:6px;">Min. tury</label>
+                            <input id="min_turns" type="number" min="2" max="20" value="6" style="width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:8px;font-size:1em;">
+                        </div>
+                        <div>
+                            <label for="max_turns" style="font-weight:600;margin-bottom:6px;">Max. tury</label>
+                            <input id="max_turns" type="number" min="2" max="30" value="10" style="width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:8px;font-size:1em;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="model">
+                        <span class="label-icon">🤖</span>
+                        Model (opcjonalnie)
+                    </label>
+                    <select id="model" name="model">
+                        <option value="">Domyślny (OPENAI_MODEL)</option>
+                        <option value="gpt-4.1" selected>gpt-4.1</option>
+                        <option value="gpt-4o">gpt-4o</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="display:flex;gap:10px;align-items:center;">
+                    <input id="auto_brief" type="checkbox" />
+                    <label for="auto_brief" style="margin:0;">
+                        <span class="label-icon">✨</span>
+                        Auto-brief (jeśli Brief pusty)
+                    </label>
+                </div>
+
+                <button type="submit" class="btn-primary" id="generateBtn">
+                    <span class="btn-icon">✨</span>
+                    Generuj Skrypt
+                </button>
+            </form>
+        </div>
+
+        <div id="resultSection" class="card result-section" style="display: none;">
+            <h2>✅ Skrypt wygenerowany!</h2>
+            
+            <div class="preview-box">
+                <h3>Podgląd:</h3>
+                <div id="preview"></div>
+            </div>
+
+            <div class="action-buttons">
+                <button id="downloadBtn" class="btn-success">
+                    <span class="btn-icon">⬇️</span>
+                    Pobierz plik .txt
+                </button>
+                <button id="downloadMetaBtn" class="btn-secondary" style="width:100%;">
+                    <span class="btn-icon">🧾</span>
+                    Pobierz metadane (.json)
+                </button>
+                <button id="newScriptBtn" class="btn-secondary">
+                    <span class="btn-icon">🔄</span>
+                    Generuj nowy skrypt
+                </button>
+            </div>
+        </div>
+
+        <div id="loadingSection" class="loading-section" style="display: none;">
+            <div class="spinner"></div>
+            <p>Generuję skrypt...</p>
+            <p class="loading-subtext">To może potrwać 20-30 sekund</p>
+        </div>
+
+        <div id="errorSection" class="error-section" style="display: none;">
+            <div class="error-box">
+                <h3>⚠️ Błąd</h3>
+                <p id="errorMessage"></p>
+                <button id="retryBtn" class="btn-secondary">Spróbuj ponownie</button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>Powered by OpenAI GPT-4 | Hosted on Render.com</p>
+    </footer>
+
+    <script>
+        let currentFilename = null;
+        let currentMetaFilename = null;
+
+        const form = document.getElementById('scriptForm');
+        const resultSection = document.getElementById('resultSection');
+        const loadingSection = document.getElementById('loadingSection');
+        const errorSection = document.getElementById('errorSection');
+        const briefTextarea = document.getElementById('brief');
+        const charCount = document.getElementById('charCount');
+        const presetSelect = document.getElementById('preset');
+        const scenesOptions = document.getElementById('scenesOptions');
+
+        // Character counter
+        briefTextarea.addEventListener('input', () => {
+            charCount.textContent = briefTextarea.value.length;
+        });
+
+        // Preset -> show/hide scene options
+        function updatePresetUI() {
+            const preset = presetSelect.value;
+            scenesOptions.style.display = (preset === 'generic_dialogue_scenes') ? 'block' : 'none';
+        }
+        presetSelect.addEventListener('change', updatePresetUI);
+        updatePresetUI();
+
+        // Form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const preset = document.getElementById('preset').value;
+            const language = document.getElementById('language').value;
+            const accent = document.getElementById('accent').value;
+            const details = document.getElementById('details').value;
+            const brief = document.getElementById('brief').value;
+            const target_words = parseInt(document.getElementById('target_words').value, 10);
+            const auto_brief = document.getElementById('auto_brief').checked;
+            const model = document.getElementById('model').value;
+
+            const scenes_count = document.getElementById('scenes_count').value;
+            const min_turns = document.getElementById('min_turns').value;
+            const max_turns = document.getElementById('max_turns').value;
+            const dialect = document.getElementById('dialect').value;
+
+            // Show loading
+            form.parentElement.style.display = 'none';
+            resultSection.style.display = 'none';
+            errorSection.style.display = 'none';
+            loadingSection.style.display = 'block';
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        preset,
+                        language,
+                        accent,
+                        details,
+                        brief,
+                        target_words,
+                        auto_brief,
+                        model,
+                        scenes_count: preset === 'generic_dialogue_scenes' ? scenes_count : null,
+                        min_turns: preset === 'generic_dialogue_scenes' ? min_turns : null,
+                        max_turns: preset === 'generic_dialogue_scenes' ? max_turns : null,
+                        dialect: preset === 'generic_dialogue_scenes' ? dialect : null,
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    currentFilename = data.filename;
+                    currentMetaFilename = data.meta_filename;
+                    document.getElementById('preview').textContent = data.preview;
+                    
+                    loadingSection.style.display = 'none';
+                    resultSection.style.display = 'block';
+                } else {
+                    throw new Error(data.error || 'Nieznany błąd');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('errorMessage').textContent = error.message;
+                loadingSection.style.display = 'none';
+                errorSection.style.display = 'block';
+            }
+        });
+
+        // Download button
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            if (currentFilename) {
+                window.location.href = `/download/${currentFilename}`;
+            }
+        });
+
+        // Download meta button
+        document.getElementById('downloadMetaBtn').addEventListener('click', () => {
+            if (currentMetaFilename) {
+                window.location.href = `/download-meta/${currentMetaFilename}`;
+            }
+        });
+
+        // New script button
+        document.getElementById('newScriptBtn').addEventListener('click', () => {
+            resultSection.style.display = 'none';
+            form.parentElement.style.display = 'block';
+            form.reset();
+            charCount.textContent = '0';
+            updatePresetUI();
+        });
+
+        // Retry button
+        document.getElementById('retryBtn').addEventListener('click', () => {
+            errorSection.style.display = 'none';
+            form.parentElement.style.display = 'block';
+        });
+    </script>
+</body>
+</html>
+
+
