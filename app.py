@@ -611,6 +611,7 @@ def generate():
         brief = (data.get('brief') or '').strip()
         details = (data.get('details') or '').strip()
         target_minutes = int(data.get("target_minutes") or 5)
+        v3 = bool(data.get("v3"))
 
         model = (os.environ.get("OPENAI_MODEL") or "gpt-4.1").strip()
         if not _looks_like_model_name(model):
@@ -628,6 +629,7 @@ def generate():
             "details": details,
             "target_minutes": target_minutes,
             "model": model,
+            "v3": v3,
         }
 
         q = get_queue()

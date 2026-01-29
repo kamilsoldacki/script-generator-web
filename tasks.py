@@ -29,6 +29,47 @@ def _estimate_segments(target_minutes: int) -> int:
     total = max(1, int(round(target_minutes / seg_minutes)))
     return min(30, max(1, total))
 
+_V3_SYSTEM_PROMPT = (
+    "You enhance dialogue text for speech generation by adding VOICE-ONLY audio tags in square brackets.\n"
+    "PRIMARY GOAL: Add context-appropriate audio tags like [sighs], [laughing], [whisper], [short pause].\n"
+    "STRICT RULES:\n"
+    "- Do NOT add, remove, or reorder ANY words from the original text.\n"
+    "- You MAY add light emphasis by adjusting punctuation, adding ellipses, and changing letter case.\n"
+    "- Do NOT create new lines or new dialogue.\n"
+    "- Do NOT put original text inside brackets. Brackets are ONLY for new audio tags.\n"
+    "- Audio tags must describe something auditory/voice-related only (no music, no SFX).\n"
+    "- Do NOT use tags like [standing], [grinning], [pacing], [music].\n"
+    "- Do NOT introduce or imply sensitive topics (politics, religion, hate, profanity, NSFW).\n"
+    "OUTPUT: Return ONLY the enhanced text."
+)
+
+def _v3_enhance_text(*, language: str, text: str, model: str) -> str:
+    """
+    Post-processes text by injecting voice-only audio tags in [].
+    Must not change wording; only tags + light emphasis are allowed.
+    """
+    text = (text or "").strip()
+    if not text:
+        return text
+
+    sys = {"role": "system", "content": _V3_SYSTEM_PROMPT}
+    usr = {
+        "role": "user",
+        "content": (
+            f"LANGUAGE: {language}\n"
+            "Enhance the following text with audio tags.\n\n"
+            f"{text}\n"
+        ),
+    }
+
+    wc = len([w for w in text.split() if w.strip()])
+    max_tokens = min(3500, max(700, int(wc * 2.3)))
+    try:
+        out = _generate_chat([sys, usr], model=model, temperature=0.25, top_p=0.9, max_tokens=max_tokens)
+        return out.strip()
+    except Exception:
+        return text
+
 def _build_outline(*, language: str, accent: str, script_type: str, brief: str, details: str, target_minutes: int, segments: int, model: str) -> list[dict[str, Any]]:
     """
     Returns a list of segments: [{title, goal, minutes, key_points[]}].
@@ -131,6 +172,7 @@ def run_generate_job(payload: dict[str, Any]) -> dict[str, Any]:
     details = (payload.get("details") or "").strip()
     target_minutes = int(payload.get("target_minutes") or 5)
     model = (payload.get("model") or "gpt-4.1").strip()
+    v3 = bool(payload.get("v3"))
 
     try:
         # If both empty, seed details so auto-brief has something to work with.
@@ -202,10 +244,17 @@ def run_generate_job(payload: dict[str, Any]) -> dict[str, Any]:
                 target_minutes=seg_minutes,
             )
 
-            seg_text = seg_text.strip()
-            full_text_parts.append(seg_text)
-            seam_tail = seg_text[-1200:]
-            continuity_note = _update_continuity(language=language, last_segment_text=seg_text, continuity=continuity_note, model=model)
+            seg_text_raw = seg_text.strip()
+            seg_text_final = seg_text_raw
+
+            if v3 and seg_text_raw:
+                seg_text_final = _v3_enhance_text(language=language, text=seg_text_raw, model=model)
+
+            full_text_parts.append(seg_text_final)
+
+            # Keep continuity + seam based on the raw text (pre-v3) so tags don't pollute generation.
+            seam_tail = seg_text_raw[-1200:]
+            continuity_note = _update_continuity(language=language, last_segment_text=seg_text_raw, continuity=continuity_note, model=model)
 
             if i == 0 or i == total_segments - 1:
                 preview = "\n\n".join(full_text_parts)[:600]
@@ -230,6 +279,7 @@ def run_generate_job(payload: dict[str, Any]) -> dict[str, Any]:
             "continuity_note": continuity_note,
             "word_count": word_count,
             "estimated_minutes": estimated_minutes,
+            "v3": v3,
         }
 
         save_script(
