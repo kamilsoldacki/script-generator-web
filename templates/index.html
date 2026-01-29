@@ -141,11 +141,13 @@
                 <div class="form-group">
                     <label for="target_minutes">Target length (minutes)</label>
                     <input id="target_minutes" name="target_minutes" type="number" min="1" max="60" step="1" value="5" required />
-                    <div class="hint" id="targetWordsHint"></div>
-                    <label class="checkbox-row">
-                        <input id="v3" name="v3" type="checkbox" />
-                        v3 (add voice audio tags like [sighs])
-                    </label>
+                    <div class="hint-row">
+                        <div class="hint" id="targetWordsHint"></div>
+                        <label class="checkbox-row" for="v3">
+                            <input id="v3" name="v3" type="checkbox" />
+                            v3
+                        </label>
+                    </div>
                 </div>
 
                 <button type="submit" class="btn-primary" id="generateBtn">
